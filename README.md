@@ -92,7 +92,7 @@ All settings are managed through the web UI and persisted to `config.json`. The 
 
 | Field | Description |
 |---|---|
-| Host | NTRIP caster hostname (e.g. `rtk2go.com`) |
+| Host | NTRIP caster hostname (e.g. `rtk.geodnet.com`, apply for a free account at https://www.geodnet.com/free if you do not have one) |
 | Port | TCP port (typically `2101`) |
 | Mountpoint | Stream mountpoint name |
 | Username / Password | Caster credentials |
