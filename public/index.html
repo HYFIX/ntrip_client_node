@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NTRIP RTK Client & Rover Dashboard</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <!-- Custom Style -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-logo">
+      <div class="pulsing-radar"></div>
+      <img src="/hyfix_logo_updated.png" alt="HyFix" class="header-hyfix-logo">
+      <h1>NTRIP <span>RTK Dashboard</span></h1>
+    </div>
+    
+    <div class="system-status-indicator">
+      <span class="status-dot disconnected" id="global-status-dot"></span>
+      <span class="status-text" id="global-status-text">Disconnected</span>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-primary" id="btn-config">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Configure Systems
+      </button>
+      <button class="btn btn-secondary" id="btn-logs-panel">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Data Logs
+      </button>
+    </div>
+  </header>
+
+  <!-- Dashboard Main Grid Layout -->
+  <main class="dashboard-grid">
+    
+    <!-- LEFT PANEL: Telemetries & Serial Ports -->
+    <div class="grid-col-4">
+      
+      <!-- Caster Connection Details Card -->
+      <section class="card ntrip-caster-card">
+        <div class="card-header">
+          <h2>NTRIP Caster Stream</h2>
+          <span class="badge" id="ntrip-status-badge">OFFLINE</span>
+        </div>
+        <div class="card-content">
+          <div class="telemetry-item">
+            <span class="telemetry-label">Caster Connection</span>
+            <span class="telemetry-val" id="telemetry-caster-endpoint">-</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">Mountpoint</span>
+            <span class="telemetry-val highlight-cyan" id="telemetry-mountpoint">-</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">Bytes Received</span>
+            <span class="telemetry-val" id="telemetry-bytes-received">0 B</span>
+          </div>
+          <div class="telemetry-item" id="gap-sim-status-row" style="display:none;">
+            <span class="telemetry-label">Gap Simulation</span>
+            <span class="telemetry-val" id="telemetry-gap-sim-status">-</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">RTCM Station ID</span>
+            <span class="telemetry-val highlight-green" id="telemetry-station-id">-</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">Base Location</span>
+            <span class="telemetry-val" id="telemetry-base-coords">-</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">Base ECEF (X,Y,Z)</span>
+            <span class="telemetry-val" id="telemetry-base-ecef" style="font-size: 0.75rem;">-</span>
+          </div>
+          <div class="telemetry-item" style="flex-direction: column; align-items: flex-start; gap: 4px; border-top: 1px dashed var(--border-color); margin-top: 6px; padding-top: 6px;">
+            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+              <span class="telemetry-label">Message Statistics</span>
+              <span class="badge badge-connected" id="rtcm-total-packets" style="font-size: 0.65rem; padding: 1px 5px;">0 Packets</span>
+            </div>
+            <div id="rtcm-stats-simple" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; line-height: 1.4; color: var(--cyan); word-break: break-all; width: 100%;">
+              Waiting for RTCM stream...
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Serial Ports Table Card -->
+      <section class="card serial-ports-card">
+        <div class="card-header">
+          <h2>Serial Ports Connections</h2>
+        </div>
+        <div class="card-content scroll-x">
+          <table class="data-table" id="table-serial-ports">
+            <thead>
+              <tr>
+                <th>Port Name</th>
+                <th>Baud</th>
+                <th>Settings</th>
+                <th>Rx / RTCM Tx</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div class="cmd-terminal">
+          <div class="cmd-terminal-label">Command Terminal</div>
+          <div class="cmd-terminal-row">
+            <select id="cmd-port-select" class="cmd-select" title="Target port">
+              <option value="">— Port —</option>
+            </select>
+            <input type="text" id="cmd-input" class="cmd-input" placeholder="e.g.  $PUBX,00*33  or  B5 62 06 …" autocomplete="off" spellcheck="false">
+            <select id="cmd-eol-select" class="cmd-select cmd-select-narrow" title="Line ending">
+              <option value="">None</option>
+              <option value="\r\n" selected>CR+LF</option>
+              <option value="\r">CR</option>
+              <option value="\n">LF</option>
+            </select>
+            <label class="cmd-hex-label" title="Treat input as space-separated hex bytes">
+              <input type="checkbox" id="cmd-hex-mode"> HEX
+            </label>
+            <button class="btn btn-primary btn-small" id="btn-send-cmd">&#9658; Send</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT PANEL: Leaflet Map (Rover Trajectories & Base) -->
+    <div class="grid-col-8 flex-col">
+      <section class="card map-card flex-grow">
+        <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+          <h2>RTK Map Trajectories</h2>
+          <div style="display: flex; align-items: center; gap: 8px; margin-left: auto;">
+            <label for="map-follow-select" style="font-size: 0.75rem; color: var(--text-dim); font-weight: 500;">Follow Primary:</label>
+            <select id="map-follow-select" style="background-color: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-main); font-family: inherit; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; outline: none; cursor: pointer; transition: border-color var(--transition-fast);">
+              <option value="none">None (Manual)</option>
+            </select>
+          </div>
+          <div class="map-legend">
+            <span class="legend-item"><span class="legend-dot base-dot"></span>Base Station</span>
+            <span class="legend-item"><span class="legend-dot rover-dot"></span>Rovers (Active Trails)</span>
+          </div>
+        </div>
+        <div class="card-content map-wrapper">
+          <div id="map"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- BOTTOM ROW: Rover Positions & Live Terminal -->
+    <div class="grid-col-12">
+      <section class="card rovers-rtk-card">
+        <div class="card-header">
+          <h2>Rovers RTK Position Matrix</h2>
+        </div>
+        <div class="card-content grid-rovers" id="rovers-position-grid">
+          <!-- Injected dynamically per enabled rover -->
+          <div class="no-rovers-prompt">No active serial ports configured. Check "Configure Systems".</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid-col-12">
+      <section class="card log-console-card">
+        <div class="card-header">
+          <h2>Live Stream Console Log</h2>
+          <button class="btn btn-small btn-clear" id="btn-clear-console">Clear Console</button>
+        </div>
+        <div class="card-content console-wrapper">
+          <pre class="console-box" id="console-box">Initializing Dashboard connection... Ready.
+</pre>
+        </div>
+      </section>
+    </div>
+
+  </main>
+
+  <!-- ==========================================
+       DRAWER PANELS (MODALS)
+       ========================================== -->
+
+  <!-- 1. SYSTEM CONFIGURATION DRAWER -->
+  <div class="drawer-overlay" id="config-drawer-overlay"></div>
+  <div class="drawer" id="config-drawer">
+    <div class="drawer-header">
+      <h2>System Configurations</h2>
+      <button class="btn-close" id="btn-close-config">×</button>
+    </div>
+    <div class="drawer-content scroll-y">
+      
+      <form id="form-config">
+        <!-- NTRIP Caster settings -->
+        <fieldset class="form-fieldset">
+          <legend>NTRIP Caster Settings</legend>
+          <div class="form-group">
+            <label for="ntrip-host">Host Address</label>
+            <input type="text" id="ntrip-host" required placeholder="e.g. rtk2go.com">
+          </div>
+          <div class="form-group-row">
+            <div class="form-group flex-1">
+              <label for="ntrip-port">Port Number</label>
+              <input type="number" id="ntrip-port" required placeholder="2101">
+            </div>
+            <div class="form-group flex-1">
+              <label for="ntrip-mountpoint">Mountpoint</label>
+              <input type="text" id="ntrip-mountpoint" required placeholder="e.g. MOUNT1">
+            </div>
+          </div>
+          <div class="form-group-row">
+            <div class="form-group flex-1">
+              <label for="ntrip-username">Username (Email)</label>
+              <input type="text" id="ntrip-username" placeholder="Anonymous">
+            </div>
+            <div class="form-group flex-1">
+              <label for="ntrip-password">Password</label>
+              <input type="password" id="ntrip-password" placeholder="Password">
+            </div>
+          </div>
+          <div class="form-group-row">
+            <div class="form-group-checkbox">
+              <input type="checkbox" id="ntrip-sendGga">
+              <label for="ntrip-sendGga">Send GGA coordinates to get RTCM stream</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="ntrip-ggaInterval">GGA Upload Frequency (ms)</label>
+            <input type="number" id="ntrip-ggaInterval" value="5000" min="1000">
+          </div>
+          <div class="form-group-row" style="margin-top: 10px;">
+            <div class="form-group-checkbox">
+              <input type="checkbox" id="ntrip-filterEphemeris">
+              <label for="ntrip-filterEphemeris">Block ephemeris forwarding to rovers (1019 GPS / 1020 GLONASS / 1042 BeiDou / 1045-1046 Galileo / 1041 NavIC / 1044 QZSS)</label>
+            </div>
+          </div>
+          <div class="form-group-row">
+            <div class="form-group-checkbox">
+              <input type="checkbox" id="ntrip-gapSimEnabled" onchange="document.getElementById('gap-sim-fields').style.display = this.checked ? 'block' : 'none'">
+              <label for="ntrip-gapSimEnabled">Enable RTCM Gap Simulation (RTK convergence test)</label>
+            </div>
+          </div>
+          <div id="gap-sim-fields" style="display:none; border-top: 1px dashed var(--border-color); margin-top: 8px; padding-top: 8px;">
+            <div class="form-group-row">
+              <div class="form-group flex-1">
+                <label for="ntrip-gapSimForwardDuration">Forward RTCM For (s)</label>
+                <input type="number" id="ntrip-gapSimForwardDuration" value="180" min="10" placeholder="180">
+              </div>
+              <div class="form-group flex-1">
+                <label for="ntrip-gapSimGapDuration">Then Stop For (s)</label>
+                <input type="number" id="ntrip-gapSimGapDuration" value="180" min="10" placeholder="180">
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Serial Ports settings -->
+        <fieldset class="form-fieldset">
+          <div class="fieldset-header">
+            <legend>Serial & Rover Interfaces</legend>
+            <div style="display:flex; gap:0.5rem;">
+              <button type="button" class="btn btn-secondary btn-small" id="btn-refresh-ports">↻ Ports</button>
+              <button type="button" class="btn btn-secondary btn-small" id="btn-add-serial-row">+ Add Interface</button>
+            </div>
+          </div>
+
+          <datalist id="available-ports-datalist"></datalist>
+
+          <div class="serial-ports-list" id="serial-ports-config-list">
+            <!-- Form rows injected dynamically -->
+          </div>
+        </fieldset>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="btn-config-import">Import File</button>
+          <button type="button" class="btn btn-secondary" id="btn-config-export">Export File</button>
+          <div class="flex-spacer"></div>
+          <button type="submit" class="btn btn-primary">Save & Apply Changes</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- 2. DATA LOGS VIEWER DRAWER -->
+  <div class="drawer-overlay" id="logs-drawer-overlay"></div>
+  <div class="drawer drawer-wide" id="logs-drawer">
+    <div class="drawer-header">
+      <h2>Local Stream Data Logs</h2>
+      <button class="btn-close" id="btn-close-logs">×</button>
+    </div>
+    <div class="drawer-content logs-drawer-layout">
+      <!-- Logs List side -->
+      <div class="logs-sidebar">
+        <h3>Log Files Directory</h3>
+        <ul class="logs-list-element" id="logs-list-container">
+          <!-- Injected dynamically -->
+        </ul>
+      </div>
+      <!-- Logs Viewer side -->
+      <div class="logs-viewer-body">
+        <div class="logs-viewer-header">
+          <h3 id="current-viewing-log-title">Select a log file to view</h3>
+          <div class="logs-viewing-actions" id="logs-viewing-actions" style="display:none;">
+            <button class="btn btn-small btn-secondary" id="btn-download-active-log">Download</button>
+            <button class="btn btn-small btn-secondary" id="btn-refresh-active-log">Refresh</button>
+          </div>
+        </div>
+        <pre class="log-file-console" id="log-file-console">No log file selected. Select a log from the left sidebar to view its latest 100 NMEA lines or RTCM Hex traces.</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet Map JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Custom Application JS -->
+  <script src="js/app.js"></script>
+</body>
+</html>

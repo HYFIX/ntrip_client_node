@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Runtime configuration (contains credentials)
+config.json
+
+# Runtime data logs
+logs/
+
+# Environment and secrets
+.env
+.env.*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
+*.suo
+*.user
