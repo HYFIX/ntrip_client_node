@@ -318,14 +318,15 @@ function updateTelemetryDashboard(payload) {
 
   // 2. Update Serial Ports Connections Table
   syncCmdPortSelector(serialPorts);
+  const uploaderStatuses = payload.uploaderStatuses || {};
   const serialTableBody = document.querySelector('#table-serial-ports tbody');
   serialTableBody.innerHTML = '';
-  
+
   Object.keys(serialPorts).forEach(portId => {
     const port = serialPorts[portId];
-    
+
     const tr = document.createElement('tr');
-    
+
     const settingsStr = `
       <div class="toggle-flag">
         <span class="badge ${port.sendGgaToCaster ? 'badge-connected' : 'badge-disconnected'}">GGA</span>
@@ -333,9 +334,23 @@ function updateTelemetryDashboard(payload) {
       </div>
     `;
 
-    const statusBadge = port.connected 
-      ? `<span class="highlight-green">● Connected</span>` 
+    const statusBadge = port.connected
+      ? `<span class="highlight-green">● Connected</span>`
       : (port.error ? `<span class="highlight-rose" title="${port.error}">● Error</span>` : `<span class="text-muted">○ Disabled</span>`);
+
+    const ul = uploaderStatuses[portId];
+    let uploadCell = '<span class="text-muted" style="font-size:0.75rem">—</span>';
+    if (ul) {
+      if (ul.status === 'connected') {
+        uploadCell = `<span class="highlight-green" style="font-size:0.75rem">● ${ul.host}/${ul.mountpoint}<br><span style="color:var(--text-dim)">${formatBytes(ul.bytesSent)} sent</span></span>`;
+      } else if (ul.status === 'connecting') {
+        uploadCell = `<span class="highlight-orange" style="font-size:0.75rem">◌ Connecting…<br><span style="color:var(--text-dim)">${ul.host}</span></span>`;
+      } else if (ul.status === 'error') {
+        uploadCell = `<span class="highlight-rose" style="font-size:0.75rem" title="${ul.statusMsg}">✕ Error<br><span style="color:var(--text-dim)">${ul.statusMsg.substring(0,30)}</span></span>`;
+      } else {
+        uploadCell = `<span class="text-muted" style="font-size:0.75rem">○ Disconnected</span>`;
+      }
+    }
 
     tr.innerHTML = `
       <td><strong>${port.portName}</strong> ${port.isSimulated ? '<span class="badge badge-connecting" style="font-size: 0.6rem">SIM</span>' : ''}</td>
@@ -347,8 +362,9 @@ function updateTelemetryDashboard(payload) {
         ${port.cmdBytesTx > 0 ? `<span style="font-size:0.7rem; color:var(--text-muted)"> +${formatBytes(port.cmdBytesTx)} cmd</span>` : ''}
       </td>
       <td>${statusBadge}</td>
+      <td>${uploadCell}</td>
     `;
-    
+
     serialTableBody.appendChild(tr);
   });
 
@@ -768,6 +784,15 @@ function addSerialConfigRow(portData = null) {
   const startLat = portData ? portData.startLat : 37.7749;
   const startLon = portData ? portData.startLon : -122.4194;
 
+  const ul = portData && portData.uploader ? portData.uploader : {};
+  const ulEnabled     = !!ul.enabled;
+  const ulHost        = ul.host || '';
+  const ulPort        = ul.port || 2101;
+  const ulMountpoint  = ul.mountpoint || '';
+  const ulUsername    = ul.username || '';
+  const ulPassword    = ul.password || '';
+  const ulVersion     = ul.ntripVersion || '1.0';
+
   row.innerHTML = `
     <div class="config-port-row-header">
       <span class="config-port-row-title">Serial Interface</span>
@@ -829,6 +854,47 @@ function addSerialConfigRow(portData = null) {
         </div>
       </div>
     </div>
+
+    <!-- Upload to NTRIP Caster -->
+    <div style="border-top:1px dashed #20263d; margin-top:8px; padding-top:8px;">
+      <div class="form-group-checkbox" style="margin:0">
+        <input type="checkbox" class="port-upload-enabled" id="chk-up-${id}" onchange="toggleUploadFields('${id}')" ${ulEnabled ? 'checked' : ''}>
+        <label for="chk-up-${id}">Upload stream to NTRIP Caster</label>
+      </div>
+      <div id="upload-fields-${id}" style="display:${ulEnabled ? 'block' : 'none'}; margin-top:8px;">
+        <div class="form-group-row">
+          <div class="form-group flex-1">
+            <label>Host</label>
+            <input type="text" class="upload-host-val" value="${ulHost}" placeholder="caster.example.com">
+          </div>
+          <div class="form-group" style="flex:0 0 80px">
+            <label>Port</label>
+            <input type="number" class="upload-port-val" value="${ulPort}" min="1" max="65535">
+          </div>
+          <div class="form-group flex-1">
+            <label>Mountpoint</label>
+            <input type="text" class="upload-mountpoint-val" value="${ulMountpoint}" placeholder="MYBASE">
+          </div>
+        </div>
+        <div class="form-group-row">
+          <div class="form-group flex-1">
+            <label>Username</label>
+            <input type="text" class="upload-username-val" value="${ulUsername}" placeholder="(optional)">
+          </div>
+          <div class="form-group flex-1">
+            <label>Password</label>
+            <input type="password" class="upload-password-val" value="${ulPassword}" placeholder="">
+          </div>
+          <div class="form-group flex-1">
+            <label>NTRIP Version</label>
+            <select class="upload-version-val">
+              <option value="1.0" ${ulVersion === '1.0' ? 'selected' : ''}>1.0 (SOURCE)</option>
+              <option value="2.0" ${ulVersion === '2.0' ? 'selected' : ''}>2.0 (POST/chunked)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 
   listContainer.appendChild(row);
@@ -843,9 +909,13 @@ window.removeSerialConfigRow = function(id) {
 window.toggleSimulatedFields = function(id) {
   const checkbox = document.querySelector(`.config-port-row[data-id="${id}"] .port-simulated-val`);
   const fields = document.getElementById(`sim-fields-${id}`);
-  if (checkbox && fields) {
-    fields.style.display = checkbox.checked ? 'block' : 'none';
-  }
+  if (checkbox && fields) fields.style.display = checkbox.checked ? 'block' : 'none';
+};
+
+window.toggleUploadFields = function(id) {
+  const checkbox = document.querySelector(`.config-port-row[data-id="${id}"] .port-upload-enabled`);
+  const fields = document.getElementById(`upload-fields-${id}`);
+  if (checkbox && fields) fields.style.display = checkbox.checked ? 'block' : 'none';
 };
 
 document.getElementById('btn-add-serial-row').addEventListener('click', () => {
@@ -891,6 +961,17 @@ document.getElementById('form-config').addEventListener('submit', (event) => {
     const startLat = parseFloat(row.querySelector('.port-simlat-val').value) || 37.7749;
     const startLon = parseFloat(row.querySelector('.port-simlon-val').value) || -122.4194;
 
+    const uploaderEnabled = row.querySelector('.port-upload-enabled').checked;
+    const uploader = uploaderEnabled ? {
+      enabled: true,
+      host: row.querySelector('.upload-host-val').value.trim(),
+      port: parseInt(row.querySelector('.upload-port-val').value, 10) || 2101,
+      mountpoint: row.querySelector('.upload-mountpoint-val').value.trim().replace(/^\//, ''),
+      username: row.querySelector('.upload-username-val').value.trim(),
+      password: row.querySelector('.upload-password-val').value,
+      ntripVersion: row.querySelector('.upload-version-val').value
+    } : { enabled: false };
+
     serialPorts.push({
       id,
       portName,
@@ -901,7 +982,8 @@ document.getElementById('form-config').addEventListener('submit', (event) => {
       isSimulated,
       simulatedSpeed,
       startLat,
-      startLon
+      startLon,
+      uploader
     });
   });
 

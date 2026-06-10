@@ -244,11 +244,17 @@ class SerialPortManager {
   constructor() {
     this.ports = {}; // portId -> { config, portObj, parserObj, stats }
     this.ggaCallback = null;
+    this.rawDataCallback = null;
   }
 
   // Set the callback triggered whenever a GGA sentence is parsed
   onGgaReceived(callback) {
     this.ggaCallback = callback;
+  }
+
+  // Set the callback triggered for every raw chunk received from any port
+  onRawData(callback) {
+    this.rawDataCallback = callback;
   }
 
   // Get physical system serial ports
@@ -386,6 +392,7 @@ class SerialPortManager {
         portData.portObj.on('data', (chunk) => {
           portData.stats.bytesRx += chunk.length;
           logger.logSerialRx(portData.config.portName, chunk);
+          if (this.rawDataCallback) this.rawDataCallback(portId, chunk);
         });
 
         // Physical port requires parsing byte-by-byte for complete text lines
@@ -405,8 +412,10 @@ class SerialPortManager {
 
     // For simulated ports, we count bytes and log raw data here since there is no raw hardware event
     if (portData.config.isSimulated || !SerialPort) {
-      portData.stats.bytesRx += line.length + 2; // count characters + CRLF
-      logger.logSerialRx(portData.config.portName, Buffer.from(line + '\r\n', 'utf8'));
+      const buf = Buffer.from(line + '\r\n', 'utf8');
+      portData.stats.bytesRx += buf.length;
+      logger.logSerialRx(portData.config.portName, buf);
+      if (this.rawDataCallback) this.rawDataCallback(portId, buf);
     }
 
     // Feed to NMEA parser (handles both GGA and GSV)

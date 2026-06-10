@@ -9,6 +9,7 @@ const nmeaParser = require('./src/nmea-parser');
 const rtcmParser = require('./src/rtcm-parser');
 const serialPortManager = require('./src/serial-manager');
 const ntripClient = require('./src/ntrip-client');
+const ntripUploader = require('./src/ntrip-uploader');
 
 const app = express();
 const server = http.createServer(app);
@@ -358,13 +359,14 @@ function hotReloadConfig(newConfig) {
     console.error('[Server] Failed to write config.json:', err.message);
   }
 
-  // 1. Reconfigure and open serial ports
+  // 1. Reconfigure and open serial ports + uploaders
   rtcmFilterBuf = Buffer.alloc(0);  // reset filter/converter state on any config change
   msmConvertBuf = Buffer.alloc(0);
   fwdStats.packetTypes = {};
   fwdStats.totalPackets = 0;
   console.log('[Server] Hot-reloading Serial Port connections...');
   serialPortManager.configurePorts(config.serialPorts);
+  ntripUploader.configure(config.serialPorts);
 
   // 2. Reconnect NTRIP Client
   console.log('[Server] Hot-reloading NTRIP Caster connection...');
@@ -392,6 +394,11 @@ function initPipelines() {
     ntripClient.sendGga(ggaLine);
   });
 
+  // Feed raw serial data to any configured NTRIP uploaders
+  serialPortManager.onRawData((portId, chunk) => {
+    ntripUploader.feed(portId, chunk);
+  });
+
   // Forward incoming RTCM corrections back to targeted rovers (filtered, converted, gated by gap simulation)
   ntripClient.onRawRtcm((rtcmChunk) => {
     let chunk = rtcmChunk;
@@ -409,9 +416,10 @@ function initPipelines() {
     }
   });
 
-  // Boot Serial ports
+  // Boot Serial ports and uploaders
   if (config.serialPorts) {
     serialPortManager.configurePorts(config.serialPorts);
+    ntripUploader.configure(config.serialPorts);
   }
 
   // Connect NTRIP Caster
@@ -584,6 +592,7 @@ setInterval(() => {
     ntrip: ntripClient.getTelemetry(),
     rtcmFwdStats: { packetTypes: { ...fwdStats.packetTypes }, totalPackets: fwdStats.totalPackets },
     serialPorts: serialPortManager.getPortStatuses(),
+    uploaderStatuses: ntripUploader.getStatuses(),
     rovers: roversStats,
     gapSim: gapSim.enabled ? {
       enabled: true,
