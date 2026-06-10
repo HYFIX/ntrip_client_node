@@ -19,6 +19,7 @@ A Node.js NTRIP client with a real-time web dashboard for managing RTK rover net
 - Decodes message type **1005 / 1006** (base station ECEF → WGS84 via Bowring's method) to plot the base station on the map
 - Packet-type frequency statistics for all received message types
 - **Ephemeris filter**: optionally strips ephemeris messages from the forwarded stream to reduce serial bandwidth — GPS (1019), GLONASS (1020), NavIC (1041), BeiDou (1042), QZSS (1044), Galileo FNAV/INAV (1045 / 1046)
+- **MSM4 conversion**: optionally down-converts MSM5/6/7 observation messages to MSM4 before forwarding — strips phase-rate fields and truncates extended-precision signal fields (20-bit → 15-bit pseudorange, 24-bit → 22-bit phase range), producing a stream compatible with older rovers that only support MSM4
 
 ### Serial Port Management
 - Supports any number of physical or simulated serial ports simultaneously
@@ -99,6 +100,7 @@ All settings are managed through the web UI and persisted to `config.json`. The 
 | Send GGA | Forward rover GGA to caster (required for VRS / nearest-stream selection) |
 | GGA Interval | How often to send the GGA heartbeat (ms) |
 | Block Ephemeris | Strip ephemeris frames before forwarding to rovers |
+| Convert to MSM4 | Down-convert MSM5/6/7 observations to MSM4 (for older rover firmware that lacks MSM5-7 support) |
 | Gap Simulation | Enable periodic RTCM gaps; set forward and gap durations in seconds |
 
 ### Serial / Rover Interfaces
@@ -124,7 +126,7 @@ Configuration can also be exported to or imported from a JSON file using the **E
 NTRIP Caster (TCP)
   └─► ntrip-client.js       parse HTTP response, stream RTCM frames
         ├─► rtcm-parser.js  decode type 1005/1006 → base station coords & packet stats
-        └─► server.js       ephemeris filter → gap simulation gate → serial-manager.js
+        └─► server.js       ephemeris filter → MSM4 converter → gap simulation gate → serial-manager.js
                                                                             └─► rover serial ports
 
 Rover serial ports

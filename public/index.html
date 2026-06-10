@@ -86,8 +86,16 @@
               <span class="telemetry-label">Message Statistics</span>
               <span class="badge badge-connected" id="rtcm-total-packets" style="font-size: 0.65rem; padding: 1px 5px;">0 Packets</span>
             </div>
+            <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">&#8595; Received from caster</div>
             <div id="rtcm-stats-simple" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; line-height: 1.4; color: var(--cyan); word-break: break-all; width: 100%;">
               Waiting for RTCM stream...
+            </div>
+            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; margin-top: 4px;">
+              <span style="font-size: 0.68rem; color: var(--text-dim);">&#8599; Forwarded to rovers</span>
+              <span class="badge" id="rtcm-fwd-total-packets" style="font-size: 0.65rem; padding: 1px 5px; background: rgba(16,185,129,0.15); color: var(--green);">0 Packets</span>
+            </div>
+            <div id="rtcm-fwd-stats" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; line-height: 1.4; color: var(--green); word-break: break-all; width: 100%;">
+              -
             </div>
           </div>
         </div>
@@ -241,6 +249,12 @@
             <div class="form-group-checkbox">
               <input type="checkbox" id="ntrip-filterEphemeris">
               <label for="ntrip-filterEphemeris">Block ephemeris forwarding to rovers (1019 GPS / 1020 GLONASS / 1042 BeiDou / 1045-1046 Galileo / 1041 NavIC / 1044 QZSS)</label>
+            </div>
+          </div>
+          <div class="form-group-row" style="margin-top: 6px;">
+            <div class="form-group-checkbox">
+              <input type="checkbox" id="ntrip-convertToMsm4">
+              <label for="ntrip-convertToMsm4">Convert MSM5/6/7 observations to MSM4 before forwarding (strips extended precision &amp; phase-rate fields)</label>
             </div>
           </div>
           <div class="form-group-row">

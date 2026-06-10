@@ -251,8 +251,8 @@ body {
   margin: 0 auto;
 }
 
-.grid-col-4 { grid-column: span 4; display: flex; flex-direction: column; gap: 1.25rem; }
-.grid-col-8 { grid-column: span 8; display: flex; }
+.grid-col-4 { grid-column: span 5; display: flex; flex-direction: column; gap: 1.25rem; }
+.grid-col-8 { grid-column: span 7; display: flex; }
 .grid-col-12 { grid-column: span 12; }
 .flex-col { display: flex; flex-direction: column; }
 .flex-grow { flex: 1; }
@@ -461,8 +461,8 @@ body {
 }
 
 .base-dot {
-  background-color: var(--rose);
-  box-shadow: 0 0 6px var(--rose);
+  background-color: var(--green);
+  box-shadow: 0 0 6px var(--green);
 }
 
 .rover-dot {
@@ -472,12 +472,14 @@ body {
 
 /* Custom Marker Styles */
 .pulsing-base-marker {
-  width: 12px;
-  height: 12px;
-  background-color: var(--rose);
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 10px var(--rose);
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 16px solid var(--green);
+  background: none;
+  border-radius: 0;
+  filter: drop-shadow(0 0 5px var(--green));
 }
 
 .pulsing-rover-marker {
@@ -519,7 +521,7 @@ body {
 
 .grid-rovers {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
   gap: 1.25rem;
   min-height: 100px;
 }

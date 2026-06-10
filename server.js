@@ -59,6 +59,199 @@ function filterEphemerisFrames(chunk) {
 }
 
 // ==========================================
+// FORWARDED RTCM STATS
+// ==========================================
+
+const fwdStats = { packetTypes: {}, totalPackets: 0 };
+
+function countForwardedFrames(chunk) {
+  let offset = 0;
+  while (offset + 5 <= chunk.length) {
+    if (chunk[offset] !== 0xD3) { offset++; continue; }
+    const length = ((chunk[offset + 1] & 0x03) << 8) | chunk[offset + 2];
+    const totalSize = length + 6;
+    if (offset + totalSize > chunk.length) break;
+    const msgType = (chunk[offset + 3] << 4) | (chunk[offset + 4] >> 4);
+    fwdStats.packetTypes[msgType] = (fwdStats.packetTypes[msgType] || 0) + 1;
+    fwdStats.totalPackets++;
+    offset += totalSize;
+  }
+}
+
+// ==========================================
+// MSM5/6/7 → MSM4 CONVERTER
+// ==========================================
+
+const MSM_CONSTELLATION_BASES = [1070, 1080, 1090, 1100, 1110, 1120];
+
+function getMsmLevel(msgType) {
+  for (const base of MSM_CONSTELLATION_BASES) {
+    const level = msgType - base;
+    if (level >= 1 && level <= 7) return { base, level };
+  }
+  return null;
+}
+
+function crc24q(buf, len) {
+  const POLY = 0x1864CFB;
+  let crc = 0;
+  for (let i = 0; i < len; i++) {
+    crc ^= buf[i] << 16;
+    for (let j = 0; j < 8; j++) { crc <<= 1; if (crc & 0x1000000) crc ^= POLY; }
+  }
+  return crc & 0xFFFFFF;
+}
+
+function msmPopcount(bigint, bits) {
+  let n = 0;
+  for (let i = 0; i < bits; i++) { if (bigint & (1n << BigInt(i))) n++; }
+  return n;
+}
+
+class MsmBitReader {
+  constructor(buffer) { this.buf = buffer; this.pos = 0; }
+  readU(n) {
+    let v = 0n;
+    for (let i = 0; i < n; i++) {
+      const b = (this.buf[this.pos >> 3] >> (7 - (this.pos & 7))) & 1;
+      v = (v << 1n) | BigInt(b);
+      this.pos++;
+    }
+    return v;
+  }
+  readS(n) {
+    const v = this.readU(n);
+    return v & (1n << BigInt(n - 1)) ? v - (1n << BigInt(n)) : v;
+  }
+}
+
+class MsmBitWriter {
+  constructor() { this.bits = []; }
+  writeU(v, n) {
+    v = BigInt(v) & ((1n << BigInt(n)) - 1n);
+    for (let i = n - 1; i >= 0; i--) this.bits.push(Number((v >> BigInt(i)) & 1n));
+  }
+  writeS(v, n) {
+    v = BigInt(v);
+    if (v < 0n) v += 1n << BigInt(n);
+    this.writeU(v, n);
+  }
+  toBuffer() {
+    while (this.bits.length & 7) this.bits.push(0);
+    const bytes = [];
+    for (let i = 0; i < this.bits.length; i += 8) {
+      let b = 0;
+      for (let j = 0; j < 8; j++) b = (b << 1) | this.bits[i + j];
+      bytes.push(b);
+    }
+    return Buffer.from(bytes);
+  }
+}
+
+function convertMsmFrameToMsm4(frame) {
+  const payload = frame.slice(3, frame.length - 3);
+  const r = new MsmBitReader(payload);
+  const w = new MsmBitWriter();
+
+  const msgType = Number(r.readU(12));
+  const msm = getMsmLevel(msgType);
+  if (!msm || msm.level <= 4) return frame;
+
+  w.writeU(msm.base + 4, 12);    // rewrite message type → MSM4
+  w.writeU(r.readU(30), 30);     // epoch time (30 bits for all GNSS; GLONASS = 3-bit day + 27-bit time)
+  w.writeU(r.readU(19), 19);     // multiple-msg(1) + IODS(3) + reserved(7) + clk steering(2) + ext clk(2) + smoothing(1+3)
+
+  const satMask  = r.readU(64); w.writeU(satMask, 64);
+  const nSat = msmPopcount(satMask, 64);
+
+  const sigMask  = r.readU(32); w.writeU(sigMask, 32);
+  const nSig = msmPopcount(sigMask, 32);
+
+  const cellBits = nSat * nSig;
+  const cellMask = r.readU(cellBits); w.writeU(cellMask, cellBits);
+  const nCell = msmPopcount(cellMask, cellBits);
+
+  // Satellite data — DF397(10) + DF398(4) + DF399(10) per sat, identical for MSM4-7
+  for (let i = 0; i < nSat; i++) w.writeU(r.readU(10), 10);
+  for (let i = 0; i < nSat; i++) w.writeU(r.readU(4),  4);
+  for (let i = 0; i < nSat; i++) w.writeU(r.readU(10), 10);
+  // MSM5/7 only: rough phase-range rates (DF405, 14 bits) — drop
+  if (msm.level === 5 || msm.level === 7) r.readU(14 * nSat);
+
+  // Signal data
+  if (msm.level === 5) {
+    // MSM5 field widths are identical to MSM4; just drop the trailing rate field
+    for (let i = 0; i < nCell; i++) w.writeS(r.readS(15), 15); // fine pseudorange
+    for (let i = 0; i < nCell; i++) w.writeS(r.readS(22), 22); // fine phase range
+    for (let i = 0; i < nCell; i++) w.writeU(r.readU(4),  4);  // lock time indicator
+    for (let i = 0; i < nCell; i++) w.writeU(r.readU(1),  1);  // half-cycle ambiguity
+    for (let i = 0; i < nCell; i++) w.writeU(r.readU(6),  6);  // CNR
+    r.readU(15 * nCell); // drop fine phase-range rates (DF404)
+  } else {
+    // MSM6/7: extended-resolution fields → truncate to MSM4 widths
+    // pseudorange: 20-bit signed → 15-bit (drop 5 LSBs; arithmetic right shift)
+    for (let i = 0; i < nCell; i++) w.writeS(r.readS(20) >> 5n, 15);
+    // phase range: 24-bit signed → 22-bit
+    for (let i = 0; i < nCell; i++) w.writeS(r.readS(24) >> 2n, 22);
+    // lock time: 10-bit → 4-bit
+    for (let i = 0; i < nCell; i++) w.writeU(r.readU(10) >> 6n, 4);
+    // half-cycle ambiguity: 1 bit (unchanged)
+    for (let i = 0; i < nCell; i++) w.writeU(r.readU(1), 1);
+    // CNR: 10-bit → 6-bit
+    for (let i = 0; i < nCell; i++) w.writeU(r.readU(10) >> 4n, 6);
+    if (msm.level === 7) r.readU(15 * nCell); // MSM7: drop fine phase-range rates
+  }
+
+  const newPayload = w.toBuffer();
+  const newFrame = Buffer.alloc(newPayload.length + 6);
+  newFrame[0] = 0xD3;
+  newFrame[1] = (newPayload.length >> 8) & 0x03;
+  newFrame[2] = newPayload.length & 0xFF;
+  newPayload.copy(newFrame, 3);
+  const crc = crc24q(newFrame, newPayload.length + 3);
+  newFrame[newPayload.length + 3] = (crc >> 16) & 0xFF;
+  newFrame[newPayload.length + 4] = (crc >> 8) & 0xFF;
+  newFrame[newPayload.length + 5] = crc & 0xFF;
+  return newFrame;
+}
+
+let msmConvertBuf = Buffer.alloc(0);
+
+function convertChunkToMsm4(chunk) {
+  msmConvertBuf = Buffer.concat([msmConvertBuf, chunk]);
+  const out = [];
+
+  while (msmConvertBuf.length >= 3) {
+    if (msmConvertBuf[0] !== 0xD3) {
+      const next = msmConvertBuf.indexOf(0xD3, 1);
+      msmConvertBuf = next === -1 ? Buffer.alloc(0) : msmConvertBuf.slice(next);
+      continue;
+    }
+    const length = ((msmConvertBuf[1] & 0x03) << 8) | msmConvertBuf[2];
+    const totalSize = length + 6;
+    if (msmConvertBuf.length < totalSize) break;
+
+    const frame = msmConvertBuf.slice(0, totalSize);
+    msmConvertBuf = msmConvertBuf.slice(totalSize);
+
+    const msgType = (frame[3] << 4) | (frame[4] >> 4);
+    const msm = getMsmLevel(msgType);
+    if (msm && msm.level > 4) {
+      try {
+        out.push(convertMsmFrameToMsm4(frame));
+      } catch (e) {
+        console.error('[MSM4] Conversion error for type', msgType, ':', e.message);
+        out.push(frame); // fall back to original on error
+      }
+    } else {
+      out.push(frame);
+    }
+  }
+
+  return out.length > 0 ? Buffer.concat(out) : null;
+}
+
+// ==========================================
 // RTCM GAP SIMULATION
 // ==========================================
 
@@ -120,11 +313,11 @@ function loadConfig() {
     // Fallback default config if file is missing or corrupted
     config = {
       ntrip: {
-        host: 'rtk2go.com',
+        host: 'rtk.geodnet.com',
         port: 2101,
-        mountpoint: 'TEST_MOUNTPOINT',
-        username: 'yydgi@example.com',
-        password: 'password',
+        mountpoint: 'AUTO',
+        username: '',
+        password: '',
         sendGga: true,
         ggaInterval: 5000,
         autoReconnect: true,
@@ -166,7 +359,10 @@ function hotReloadConfig(newConfig) {
   }
 
   // 1. Reconfigure and open serial ports
-  rtcmFilterBuf = Buffer.alloc(0); // reset filter state on any config change
+  rtcmFilterBuf = Buffer.alloc(0);  // reset filter/converter state on any config change
+  msmConvertBuf = Buffer.alloc(0);
+  fwdStats.packetTypes = {};
+  fwdStats.totalPackets = 0;
   console.log('[Server] Hot-reloading Serial Port connections...');
   serialPortManager.configurePorts(config.serialPorts);
 
@@ -196,14 +392,19 @@ function initPipelines() {
     ntripClient.sendGga(ggaLine);
   });
 
-  // Forward incoming RTCM corrections back to targeted rovers (filtered, gated by gap simulation)
+  // Forward incoming RTCM corrections back to targeted rovers (filtered, converted, gated by gap simulation)
   ntripClient.onRawRtcm((rtcmChunk) => {
     let chunk = rtcmChunk;
     if (config.ntrip && config.ntrip.filterEphemeris) {
-      chunk = filterEphemerisFrames(rtcmChunk);
-      if (!chunk) return; // entire chunk was ephemeris frames
+      chunk = filterEphemerisFrames(chunk);
+      if (!chunk) return;
+    }
+    if (config.ntrip && config.ntrip.convertToMsm4) {
+      chunk = convertChunkToMsm4(chunk);
+      if (!chunk) return;
     }
     if (!gapSim.enabled || gapSim.isForwarding) {
+      countForwardedFrames(chunk);
       serialPortManager.forwardRtcm(chunk);
     }
   });
@@ -381,6 +582,7 @@ setInterval(() => {
     type: 'telemetry',
     timestamp: Date.now(),
     ntrip: ntripClient.getTelemetry(),
+    rtcmFwdStats: { packetTypes: { ...fwdStats.packetTypes }, totalPackets: fwdStats.totalPackets },
     serialPorts: serialPortManager.getPortStatuses(),
     rovers: roversStats,
     gapSim: gapSim.enabled ? {

@@ -290,18 +290,30 @@ function updateTelemetryDashboard(payload) {
   if (rtcmTotalBadge) {
     rtcmTotalBadge.innerText = `${baseStats.totalPackets || 0} Packets`;
   }
-  
+
   const rtcmStatsContainer = document.getElementById('rtcm-stats-simple');
   if (rtcmStatsContainer) {
     const packetTypes = baseStats.packetTypes || {};
-    const msgTypes = Object.keys(packetTypes).map(Number).sort((a, b) => a - b); // Sort ascending by type number
-
+    const msgTypes = Object.keys(packetTypes).map(Number).sort((a, b) => a - b);
     if (msgTypes.length === 0) {
       rtcmStatsContainer.innerText = 'Waiting for RTCM stream...';
     } else {
-      const statsStr = msgTypes.map(type => `${type}(${packetTypes[type]})`).join(', ');
-      rtcmStatsContainer.innerHTML = statsStr;
+      rtcmStatsContainer.innerHTML = msgTypes.map(t => `${t}(${packetTypes[t]})`).join(', ');
     }
+  }
+
+  // Update forwarded-to-rovers stats
+  const fwdStats = payload.rtcmFwdStats || { packetTypes: {}, totalPackets: 0 };
+  const fwdTotalBadge = document.getElementById('rtcm-fwd-total-packets');
+  if (fwdTotalBadge) {
+    fwdTotalBadge.innerText = `${fwdStats.totalPackets || 0} Packets`;
+  }
+  const fwdStatsContainer = document.getElementById('rtcm-fwd-stats');
+  if (fwdStatsContainer) {
+    const fwdTypes = Object.keys(fwdStats.packetTypes || {}).map(Number).sort((a, b) => a - b);
+    fwdStatsContainer.innerText = fwdTypes.length === 0
+      ? '-'
+      : fwdTypes.map(t => `${t}(${fwdStats.packetTypes[t]})`).join(', ');
   }
 
   // 2. Update Serial Ports Connections Table
@@ -497,7 +509,7 @@ function updateBaseStationMarker(lat, lon, stationId) {
   if (typeof L === 'undefined' || !map) return;
   const popupContent = `
     <div style="font-family: 'Outfit', sans-serif; font-size: 0.85rem">
-      <strong style="color: #ef4444">NTRIP Base Station</strong><br/>
+      <strong style="color: #10b981">NTRIP Base Station</strong><br/>
       ID: <strong>${stationId}</strong><br/>
       Latitude: ${lat.toFixed(6)}<br/>
       Longitude: ${lon.toFixed(6)}
@@ -506,7 +518,8 @@ function updateBaseStationMarker(lat, lon, stationId) {
 
   const customIcon = L.divIcon({
     className: 'pulsing-base-marker',
-    iconSize: [12, 12]
+    iconSize: [18, 16],
+    iconAnchor: [9, 8]
   });
 
   if (!baseMarker) {
@@ -719,6 +732,7 @@ function populateConfigForm(config) {
   document.getElementById('ntrip-sendGga').checked = !!config.ntrip.sendGga;
   document.getElementById('ntrip-ggaInterval').value = config.ntrip.ggaInterval || 5000;
   document.getElementById('ntrip-filterEphemeris').checked = !!config.ntrip.filterEphemeris;
+  document.getElementById('ntrip-convertToMsm4').checked = !!config.ntrip.convertToMsm4;
 
   const gapSimEnabled = !!config.ntrip.gapSimEnabled;
   document.getElementById('ntrip-gapSimEnabled').checked = gapSimEnabled;
@@ -852,6 +866,7 @@ document.getElementById('form-config').addEventListener('submit', (event) => {
     sendGga: document.getElementById('ntrip-sendGga').checked,
     ggaInterval: parseInt(document.getElementById('ntrip-ggaInterval').value, 10) || 5000,
     filterEphemeris: document.getElementById('ntrip-filterEphemeris').checked,
+    convertToMsm4: document.getElementById('ntrip-convertToMsm4').checked,
     autoReconnect: true,
     reconnectDelay: 5000,
     gapSimEnabled: document.getElementById('ntrip-gapSimEnabled').checked,
