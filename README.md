@@ -17,7 +17,7 @@ A Node.js NTRIP client with a real-time web dashboard for managing RTK rover net
 ### RTCM v3 Stream Processing
 - Binary frame parser with `0xD3` preamble detection and 10-bit length framing
 - Decodes message type **1005 / 1006** (base station ECEF → WGS84 via Bowring's method) to plot the base station on the map
-- Packet-type frequency statistics for all received message types
+- Packet-type frequency statistics for all **received** message types and separately for all **forwarded** message types — makes filter and converter effects immediately visible
 - **Ephemeris filter**: optionally strips ephemeris messages from the forwarded stream to reduce serial bandwidth — GPS (1019), GLONASS (1020), NavIC (1041), BeiDou (1042), QZSS (1044), Galileo FNAV/INAV (1045 / 1046)
 - **MSM4 conversion**: optionally down-converts MSM5/6/7 observation messages to MSM4 before forwarding — strips phase-rate fields and truncates extended-precision signal fields (20-bit → 15-bit pseudorange, 24-bit → 22-bit phase range), producing a stream compatible with older rovers that only support MSM4
 
@@ -26,6 +26,12 @@ A Node.js NTRIP client with a real-time web dashboard for managing RTK rover net
 - Per-port configuration: baud rate, GGA provider flag, RTCM forwarding flag
 - Differential RTCM TX bytes and manual command TX bytes tracked separately
 - Hot-reload: changing port settings reconnects only affected ports, leaving others running
+
+### NTRIP Uploader (Base Station Mode)
+- Each serial port can optionally **upload its raw data stream to an NTRIP caster**, turning the system into a base station broadcaster
+- Supports **NTRIP 1.0** (`SOURCE` method, raw streaming) and **NTRIP 2.0** (`POST` / chunked transfer encoding)
+- Per-port configuration: host, port, mountpoint, username, password, NTRIP version
+- Auto-reconnects on disconnect or error; live upload status (connecting / connected / error) and bytes-sent counter shown in the serial ports table
 
 ### Simulated Rover
 - Built-in mock serial port that generates synthetic NMEA (GGA + GSV) at 1 Hz
@@ -43,7 +49,8 @@ A Node.js NTRIP client with a real-time web dashboard for managing RTK rover net
 - **RTK Map** — Leaflet map with dark tile theme; plots base station marker, per-rover position markers colour-coded by fix quality, trajectory trails, and dashed baseline lines
 - **Rovers RTK Matrix** — live card per rover showing coordinates, RTK fix quality badge, HDOP, satellite count, correction age, fix rate bar, and SPP / DGPS / Float / Fix epoch counters
 - **Satellite Skyplot & SNR bars** — canvas-rendered per rover, colour-coded by constellation (GPS / GLONASS / Galileo / BeiDou / QZSS)
-- **NTRIP Caster card** — connection status, bytes received, base station ID, WGS84 and ECEF coordinates, RTCM message type breakdown
+- **NTRIP Caster card** — connection status, bytes received, base station ID, WGS84 and ECEF coordinates; dual RTCM message statistics showing received-from-caster and forwarded-to-rovers counts separately
+- **Serial Ports table** — live per-port Rx / RTCM Tx / command Tx byte counters plus uploader connection status
 - **Serial Command Terminal** — send ASCII or hex commands to any connected port directly from the browser; up/down arrow key history; EOL selector (None / CR / LF / CR+LF)
 - **Live Stream Console** — scrolling timestamped log of all events
 - **Data Logs viewer** — browse, view, and download session log files
@@ -115,6 +122,11 @@ All settings are managed through the web UI and persisted to `config.json`. The 
 | Simulated Rover | Use the built-in mock rover instead of a physical port |
 | Walk Speed | Simulated rover movement speed (km/h) |
 | Start Lat / Lon | Simulated rover starting position |
+| Upload to NTRIP Caster | Stream raw data from this port to an NTRIP caster (base station upload) |
+| Upload Host / Port | Target caster address and TCP port |
+| Upload Mountpoint | Mountpoint name to register on the caster |
+| Upload Username / Password | Caster credentials for the upload connection |
+| NTRIP Version | `1.0` (SOURCE method) or `2.0` (POST / chunked) |
 
 Configuration can also be exported to or imported from a JSON file using the **Export File** / **Import File** buttons.
 
@@ -130,10 +142,12 @@ NTRIP Caster (TCP)
                                                                             └─► rover serial ports
 
 Rover serial ports
-  └─► serial-manager.js     parse NMEA lines → nmea-parser.js → GGA → ntrip-client (VRS)
+  └─► serial-manager.js     raw data → ntrip-uploader.js → NTRIP caster (base station upload)
+                             parse NMEA lines → nmea-parser.js → GGA → ntrip-client (VRS)
 
 server.js  (1 Hz broadcast)
-  └─► WebSocket clients     telemetry: ntrip status, serial stats, rover NMEA stats, gap sim state
+  └─► WebSocket clients     telemetry: ntrip status, serial stats, uploader status,
+                                       rover NMEA stats, forwarded RTCM stats, gap sim state
 ```
 
 ---
